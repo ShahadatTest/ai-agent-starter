@@ -10,6 +10,8 @@ pip install -e ".[dev]"
 python -m agent_starter --docs docs-example --show-tools "Can I get my money back on a yearly Pro plan after 10 days?"
 ```
 
+Illustrative output (the exact wording varies from run to run):
+
 ```
 Tools used: search_docs, search_docs
 Yes. Annual plans can be refunded in full within 14 days of purchase or renewal [refunds.md#1], and 10 days is
