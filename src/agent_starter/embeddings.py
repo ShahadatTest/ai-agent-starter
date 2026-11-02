@@ -75,7 +75,7 @@ class EmbeddingIndex:
 
     def search(self, query: str, k: int = 4) -> list[tuple[Chunk, float]]:
         """Top-k chunks by cosine similarity to `query`, best first."""
-        if not query.strip() or not self.chunks:
+        if k <= 0 or not query.strip() or not self.chunks:
             return []
         q = _unit(self._encode([query])[0])
         scored = []
