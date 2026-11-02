@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+- Cache chunk embeddings on disk when a stable encoder identity is available.
 - Expose the soft chunk size through all three command-line entry points.
 - Add repeatable evaluation case selection and Markdown reports.
 - Reject query/chunk embedding dimension mismatches instead of truncating similarity calculations.
