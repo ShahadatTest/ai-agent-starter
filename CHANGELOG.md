@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+- Reject query/chunk embedding dimension mismatches instead of truncating similarity calculations.
 - Return no passages for non-positive search limits.
 
 ## [0.1.0] - 2026-11-02
