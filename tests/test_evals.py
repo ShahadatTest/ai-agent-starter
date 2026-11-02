@@ -30,7 +30,7 @@ def test_selected_cases_and_markdown(capsys):
     assert [result["id"] for result in report["results"]] == [selected]
     assert report["summary"]["cases"] == 1
     main([*args, "--only", selected, "--markdown"])
-    assert "| case | pass | P | R | cited |" in capsys.readouterr().out
+    assert "| case | pass | mode | P | R | cited |" in capsys.readouterr().out
     with pytest.raises(SystemExit) as error:
         main([*args, "--only", "unknown"])
     assert error.value.code == 2
@@ -130,3 +130,148 @@ def test_eval_cli_exit_codes(capsys):
     assert "Below threshold" in capsys.readouterr().err
     assert main([*args, "--json"]) == 0
     assert '"summary"' in capsys.readouterr().out
+
+
+# --- native citations: verifiable, claim by claim ----------------------------------------------------------------
+
+from agent_starter.citations import AnswerPart, Citation  # noqa: E402
+
+MONTHLY = EvalCase("monthly", "Are monthly plans refunded within 14 days?", ["refunds.md#1"], ["14 days"])
+NOT_REFUNDED = "Monthly plans are not refunded, because you can cancel before the next charge."
+WINDOW_TEXT = "Annual plans can be refunded in full within 14 days of purchase or renewal."
+
+
+def test_a_claim_that_contradicts_its_own_citation_is_caught_only_by_native_citations():
+    claim = "Monthly plans are refunded within 14 days"
+    # Typed tag: the tag names the right chunk and "14 days" is somewhere in it, so the old check lets it pass.
+    tagged = score_case(MONTHLY, f"{claim} [refunds.md#1].", INDEX)
+    assert tagged.mode == "tags" and tagged.supported and tagged.passed
+    # Native citation: the API says which sentence backs the claim, and that sentence does not say "14 days".
+    parts = [AnswerPart(claim, (Citation("refunds.md#1", "Refund window", NOT_REFUNDED),)), AnswerPart(".")]
+    native = score_case(MONTHLY, claim + ".", INDEX, parts)
+    assert native.mode == "native" and native.valid and native.supported
+    assert not native.grounded and not native.passed
+
+
+def test_a_claim_quoted_by_its_own_citation_is_grounded():
+    parts = [AnswerPart("Annual plans: within 14 days", (Citation("refunds.md#1", "Refund window", WINDOW_TEXT),))]
+    result = score_case(MONTHLY, parts[0].text, INDEX, parts)
+    assert result.grounded and result.passed
+
+
+def test_a_quote_the_document_does_not_contain_is_invalid():
+    fake_quote = Citation("refunds.md#1", "Refund window", "Monthly plans are refunded within 14 days.")
+    result = score_case(MONTHLY, "Within 14 days.", INDEX, [AnswerPart("Within 14 days.", (fake_quote,))])
+    assert not result.valid and not result.passed
+
+
+def test_the_offline_run_passes_every_case_with_native_citations():
+    report = run_eval(CASES, INDEX, ExtractiveClient())
+    assert report.summary["pass_rate"] == 1.0
+    assert report.summary["grounded"] == 1.0
+    assert {r.mode for r in report.results if r.expected_citations} == {"native"}
+    assert report.failed_not_covered == []
+
+
+def test_the_fake_says_not_covered_when_no_passage_covers_the_question():
+    from agent_starter.agent import ask
+    from agent_starter.fakes import NOT_COVERED
+
+    result = ask("Is there a dark mode in the iOS app?", INDEX, client=ExtractiveClient())
+    assert result.answer == NOT_COVERED and result.citations == []
+
+
+def test_a_not_covered_case_that_cites_fails_the_run_whatever_the_thresholds(monkeypatch, capsys):
+    import agent_starter.fakes as fakes
+
+    # A "model" that never declines: it cites the best lexical match even for questions the docs don't cover.
+    monkeypatch.setattr(fakes, "ExtractiveClient", lambda: ExtractiveClient(min_coverage=0.0))
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example")]
+    zero = ["--min-recall", "0", "--min-precision", "0", "--min-supported", "0", "--min-grounded", "0"]
+    assert main([*args, *zero]) == 1
+    assert "not-covered cases cited something: not-covered-dark-mode" in capsys.readouterr().err
+
+
+def test_min_pass_rate_is_enforced(capsys):
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example")]
+    assert main([*args, "--min-pass-rate", "1.0"]) == 0
+    capsys.readouterr()
+
+
+# --- the typed-tag fallback must not hide a regression ----------------------------------------------------------
+
+
+import anthropic as _anthropic  # noqa: E402
+
+_REAL_ANTHROPIC = _anthropic.Anthropic
+
+
+def _real_sdk_client(final_text):
+    """The real Anthropic SDK with a local mock of the HTTP API: it searches once, then answers `final_text`
+    with no native citations. No network and no credential are used."""
+    import json as _json
+
+    import anthropic
+    import httpx2
+
+    usage = {"input_tokens": 1, "output_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+
+    def handler(request):
+        body = _json.loads(request.content)
+        answered = any(isinstance(block, dict) and block.get("type") == "tool_result"
+                       for message in body["messages"] if isinstance(message.get("content"), list)
+                       for block in message["content"])
+        content = ([{"type": "text", "text": final_text}] if answered else
+                   [{"type": "tool_use", "id": "toolu_1", "name": "search_docs", "input": {"query": "data"}}])
+        return httpx2.Response(200, json={
+            "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": content,
+            "stop_reason": "end_turn" if answered else "tool_use", "stop_sequence": None, "usage": usage})
+
+    transport = httpx2.MockTransport(handler)
+    return _REAL_ANTHROPIC(api_key="offline-placeholder", max_retries=0,
+                           http_client=anthropic.DefaultHttpxClient(transport=transport))
+
+
+def _live_main(monkeypatch, final_text, *extra):
+    import anthropic
+
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: _real_sdk_client(final_text))
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example"),
+            "--only", "data-location", "--live"]
+    return main([*args, *extra])
+
+
+def test_a_real_client_answering_with_typed_tags_fails_the_run(monkeypatch, capsys):
+    tagged = "Data is stored in the European Union (Frankfurt) by default [security.md#2]."
+    assert _live_main(monkeypatch, tagged) == 1
+    out, err = capsys.readouterr()
+    assert "Live run: claude-opus-5-5" in out and " tags " in out
+    assert "answered without native citations: data-location" in err
+    # The fallback still scores it when asked to, and then this answer is fine.
+    assert _live_main(monkeypatch, tagged, "--allow-tags") == 0
+
+
+def test_a_real_client_answering_without_any_citation_fails_the_run(monkeypatch, capsys):
+    assert _live_main(monkeypatch, "It is stored in Frankfurt.") == 1
+    assert "answered without native citations: data-location" in capsys.readouterr().err
+
+
+def test_an_offline_client_that_falls_back_to_tags_fails_too(monkeypatch, capsys):
+    import agent_starter.fakes as fakes
+    from agent_starter.fakes import ScriptedClient, message, text_block
+
+    answer = message(text_block("Data is stored in the European Union (Frankfurt) by default [security.md#2]."))
+    monkeypatch.setattr(fakes, "ExtractiveClient", lambda: ScriptedClient([answer]))
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example"), "--only", "data-location"]
+    assert main(args) == 1
+    assert "answered without native citations" in capsys.readouterr().err
+
+
+def test_the_offline_report_is_labelled_a_pipeline_baseline(capsys):
+    import json as _json
+
+    args = ["--cases", str(ROOT / "evals" / "cases.jsonl"), "--docs", str(ROOT / "docs-example")]
+    assert main(args) == 0
+    assert capsys.readouterr().out.startswith("Pipeline baseline (offline stand-in, not a score of the agent)")
+    assert main([*args, "--json"]) == 0
+    assert _json.loads(capsys.readouterr().out)["kind"] == "pipeline-baseline"
