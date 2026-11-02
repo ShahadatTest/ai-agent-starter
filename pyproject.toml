@@ -1,22 +1,48 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-starter"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A small, tested starter for document-grounded Claude agents (RAG + tool use)."
 readme = "README.md"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Esdras Souza (Thalzeron Labs)" }]
 requires-python = ">=3.10"
 dependencies = ["anthropic>=2.3"]
+keywords = ["claude", "anthropic", "rag", "agents", "tool-use", "mcp", "bm25", "embeddings"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+# Serve the document tools to any MCP client: python -m agent_starter.mcp_server
+mcp = ["mcp>=2.3,<3"]
+# Local embedding retriever (--retriever embeddings). Runs on your machine; no paid API.
+embeddings = ["sentence-transformers>=3"]
+dev = ["pytest>=8", "build>=1.2", "mcp>=2.3,<3"]
+
+[project.urls]
+Homepage = "https://github.com/ThalzeronLabs/ai-agent-starter"
+Changelog = "https://github.com/ThalzeronLabs/ai-agent-starter/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ThalzeronLabs/ai-agent-starter/issues"
 
 [project.scripts]
 agent-starter = "agent_starter.__main__:main"
+agent-starter-mcp = "agent_starter.mcp_server:main"
+agent-starter-eval = "agent_starter.evals:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "agent_starter.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -5,10 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python: ["3.10", "3.12", "3.13"]
     steps:
@@ -23,3 +27,34 @@ jobs:
 
       - name: Tests (offline, no API key needed)
         run: pytest -q
+
+      - name: Offline evaluation (citations must point at the right passages)
+        run: python -m agent_starter.evals
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build sdist and wheel
+        run: |
+          pip install build
+          python -m build
+
+      - name: Smoke-test the wheel in a clean environment
+        run: |
+          python -m venv /tmp/wheel-env
+          /tmp/wheel-env/bin/pip install "$(ls dist/*.whl)[mcp]"
+          cd /tmp
+          /tmp/wheel-env/bin/python -c "import agent_starter, agent_starter.mcp_server, agent_starter.evals; print(agent_starter.__version__)"
+          /tmp/wheel-env/bin/agent-starter --help > /dev/null
+          /tmp/wheel-env/bin/agent-starter-mcp --help > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

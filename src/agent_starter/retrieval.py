@@ -1,8 +1,12 @@
-"""Document loading, chunking and BM25 retrieval: the "R" in RAG, with zero external dependencies.
+"""Document loading, chunking and retrieval: the "R" in RAG.
 
-BM25 is a classic lexical ranking function (the one search engines used before embeddings). It needs no API key,
-no vector database and no GPU, ranks well on technical docs where exact terms matter, and is fully deterministic,
-which makes the whole agent testable offline. Swap in embeddings later by replacing `BM25Index`.
+Everything the agent needs from retrieval is the small `Retriever` protocol below. The default implementation,
+`BM25Index`, has zero external dependencies: BM25 is a classic lexical ranking function (the one search engines used
+before embeddings). It needs no API key, no vector database and no GPU, ranks well on technical docs where exact
+terms matter, and is fully deterministic, which makes the whole agent testable offline.
+
+`agent_starter.embeddings.EmbeddingIndex` is an optional, local alternative (``pip install "agent-starter[embeddings]"``)
+that implements the same protocol; `build_retriever` picks one by name.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 TEXT_SUFFIXES = {".md", ".txt", ".rst"}
 
@@ -87,6 +92,35 @@ def load_folder(folder: str | Path) -> dict[str, str]:
         for path in sorted(root.rglob("*"))
         if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES
     }
+
+
+@runtime_checkable
+class Retriever(Protocol):
+    """What the tools need from a search backend. Implement these three members to plug in your own."""
+
+    documents: dict[str, str]
+    """Full text of every document, keyed by its name (the part of a citation tag before `#`)."""
+
+    chunks: list[Chunk]
+    """Every searchable passage."""
+
+    def search(self, query: str, k: int = 4) -> list[tuple[Chunk, float]]:
+        """Top-k `(chunk, score)` pairs for `query`, best first. May return fewer than k, or none."""
+        ...
+
+
+RETRIEVERS = ("bm25", "embeddings")
+
+
+def build_retriever(folder: str | Path, kind: str = "bm25", **kwargs) -> Retriever:
+    """Index `folder` with the retriever named `kind` (one of `RETRIEVERS`). Extra kwargs go to its constructor."""
+    if kind == "bm25":
+        return BM25Index.from_folder(folder, **kwargs)
+    if kind == "embeddings":
+        from .embeddings import EmbeddingIndex  # optional extra: imported only when asked for
+
+        return EmbeddingIndex.from_folder(folder, **kwargs)
+    raise ValueError(f"Unknown retriever {kind!r}; choose one of {', '.join(RETRIEVERS)}")
 
 
 class BM25Index:

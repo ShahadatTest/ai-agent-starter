@@ -1,0 +1,14 @@
+{"id": "refund-annual-window", "question": "Can I get a refund on an annual plan after 10 days?", "expected_citations": ["refunds.md#1"], "expected_facts": ["14 days"]}
+{"id": "refund-monthly", "question": "Are monthly plans refunded?", "expected_citations": ["refunds.md#1"], "expected_facts": ["not refunded"]}
+{"id": "refund-how-to-ask", "question": "How do I ask for a refund?", "expected_citations": ["refunds.md#2"], "expected_facts": ["billing@northwind-notes.example"]}
+{"id": "cancel-keeps-notes", "question": "Are my notes deleted when I cancel and downgrade?", "expected_citations": ["refunds.md#0"], "expected_facts": ["never deleted"]}
+{"id": "pro-yearly-price", "question": "How much does the Pro plan cost per year?", "expected_citations": ["plans.md#2"], "expected_facts": ["$60 per year"]}
+{"id": "team-minimum-users", "question": "What is the minimum number of users on the Team plan?", "expected_citations": ["plans.md#3"], "expected_facts": ["Minimum of 3 users"]}
+{"id": "student-discount", "question": "Do students get a discount?", "expected_citations": ["plans.md#4"], "expected_facts": ["50% off Pro"]}
+{"id": "free-plan-devices", "question": "On how many devices can the Free plan sync?", "expected_citations": ["plans.md#1"], "expected_facts": ["two devices"]}
+{"id": "encryption-at-rest", "question": "How are notes encrypted at rest?", "expected_citations": ["security.md#0"], "expected_facts": ["AES-256"]}
+{"id": "admins-require-2fa", "question": "Can Team admins require two-factor authentication for every member?", "expected_citations": ["security.md#1"], "expected_facts": ["require it for every member"]}
+{"id": "data-location", "question": "Where is my data stored by default?", "expected_citations": ["security.md#2"], "expected_facts": ["Frankfurt"]}
+{"id": "export-on-free", "question": "Can I export my notes on the Free plan?", "expected_citations": ["security.md#3"], "expected_facts": ["Markdown"]}
+{"id": "not-covered-dark-mode", "question": "Is there a dark mode in the iOS app?", "expected_citations": [], "expected_facts": []}
+{"id": "not-covered-slack", "question": "Does it integrate with Slack?", "expected_citations": [], "expected_facts": []}

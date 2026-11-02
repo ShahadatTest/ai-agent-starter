@@ -8,7 +8,7 @@ import operator
 
 from anthropic import beta_tool
 
-from .retrieval import BM25Index
+from .retrieval import Retriever
 
 MAX_DOCUMENT_CHARS = 20_000
 
@@ -19,7 +19,7 @@ _OPERATORS = {
 }
 
 
-def search_docs_impl(index: BM25Index, query: str, top_k: int = 4) -> str:
+def search_docs_impl(index: Retriever, query: str, top_k: int = 4) -> str:
     hits = index.search(query, k=max(1, min(top_k, 8)))
     if not hits:
         return "No passage in the documents matches that query. Try other words, or tell the user it is not covered."
@@ -30,7 +30,7 @@ def search_docs_impl(index: BM25Index, query: str, top_k: int = 4) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def read_document_impl(index: BM25Index, source: str) -> str:
+def read_document_impl(index: Retriever, source: str) -> str:
     text = index.documents.get(source)
     if text is None:
         available = ", ".join(sorted(index.documents)) or "(none)"
@@ -65,7 +65,7 @@ def calculate_impl(expression: str) -> str:
     return str(int(result)) if isinstance(result, float) and result.is_integer() else str(result)
 
 
-def build_tools(index: BM25Index) -> list:
+def build_tools(index: Retriever) -> list:
     """The tool list handed to the tool runner, bound to one document index."""
 
     @beta_tool
