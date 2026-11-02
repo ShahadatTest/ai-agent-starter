@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+- Add repeatable evaluation case selection and Markdown reports.
 - Reject query/chunk embedding dimension mismatches instead of truncating similarity calculations.
 - Return no passages for non-positive search limits.
 
