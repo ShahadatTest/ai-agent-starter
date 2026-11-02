@@ -1,0 +1,4 @@
+# The sdist carries what the tests and the offline evaluation need.
+include CHANGELOG.md CONTRIBUTING.md
+recursive-include docs-example *.md
+recursive-include evals *.jsonl

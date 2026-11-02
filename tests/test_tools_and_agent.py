@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from agent_starter.agent import SYSTEM_PROMPT, ask
+from agent_starter.fakes import ScriptedClient, message, text_block, tool_use_block
 from agent_starter.retrieval import BM25Index
 from agent_starter.tools import build_tools, calculate_impl, read_document_impl, search_docs_impl
 
@@ -58,34 +59,15 @@ def test_tool_schemas_come_from_signatures_and_docstrings():
 # --- agent loop (fake client: no network, no key) ----------------------------------------------------------------
 
 
-def _message(*blocks, stop_reason="end_turn", model="claude-opus-5-5"):
-    return SimpleNamespace(content=list(blocks), stop_reason=stop_reason, model=model)
-
-
-def _tool_use(name):
-    return SimpleNamespace(type="tool_use", name=name)
-
-
-def _text(text):
-    return SimpleNamespace(type="text", text=text)
-
-
-class FakeClient:
-    def __init__(self, messages):
-        self.calls = []
-        self.beta = SimpleNamespace(messages=SimpleNamespace(tool_runner=self._runner))
-        self._messages = messages
-
-    def _runner(self, **kwargs):
-        self.calls.append(kwargs)
-        return iter(self._messages)
+def _usage(**counts):
+    return SimpleNamespace(**counts)
 
 
 def test_ask_runs_the_loop_and_returns_the_final_text_with_the_tools_used():
-    client = FakeClient([
-        _message(_tool_use("search_docs"), stop_reason="tool_use"),
-        _message(_tool_use("calculate"), stop_reason="tool_use"),
-        _message(_text("Pro yearly costs $60 [plans.md#2]."), _text(" That is $5/month.")),
+    client = ScriptedClient([
+        message(tool_use_block("search_docs"), stop_reason="tool_use"),
+        message(tool_use_block("calculate"), stop_reason="tool_use"),
+        message(text_block("Pro yearly costs $60 [plans.md#2]."), text_block(" That is $5/month.")),
     ])
     result = ask("How much is Pro per month on the yearly plan?", INDEX, client=client)
 
@@ -95,7 +77,7 @@ def test_ask_runs_the_loop_and_returns_the_final_text_with_the_tools_used():
 
 
 def test_ask_sends_the_right_request():
-    client = FakeClient([_message(_text("ok"))])
+    client = ScriptedClient([message(text_block("ok"))])
     ask("Hi", INDEX, client=client, effort="high", max_iterations=3)
     [call] = client.calls
     assert call["model"] == "claude-opus-5-5"
@@ -105,10 +87,70 @@ def test_ask_sends_the_right_request():
     assert call["fallbacks"] == "default"
     assert [t.name for t in call["tools"]] == ["search_docs", "read_document", "calculate"]
     assert call["messages"] == [{"role": "user", "content": "Hi"}]
+    assert "stream" not in call
+
+
+def test_prompt_caching_is_on_by_default_and_can_be_turned_off():
+    client = ScriptedClient([message(text_block("ok"))])
+    ask("Hi", INDEX, client=client)
+    ask("Hi", INDEX, client=client, cache=False)
+    assert client.calls[0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in client.calls[1]
+
+
+def test_the_system_prompt_is_static_so_the_cached_prefix_stays_identical():
+    client = ScriptedClient([message(text_block("ok"))])
+    ask("first question", INDEX, client=client)
+    ask("second question", INDEX, client=client)
+    first, second = client.calls
+    assert first["system"] == second["system"]
+    assert [t.to_dict() for t in first["tools"]] == [t.to_dict() for t in second["tools"]]
+
+
+def test_streaming_passes_text_deltas_as_they_arrive_and_returns_the_same_result():
+    turns = [
+        message(tool_use_block("search_docs"), stop_reason="tool_use"),
+        message(text_block("Refunds are possible within 14 days [refunds.md#1]."), stop_reason="end_turn"),
+    ]
+    client = ScriptedClient(turns)
+    deltas = []
+    result = ask("Refunds?", INDEX, client=client, stream=True, on_text=deltas.append)
+
+    assert len(deltas) > 1  # arrived in pieces
+    assert "".join(deltas) == "Refunds are possible within 14 days [refunds.md#1]."
+    assert result.answer == "Refunds are possible within 14 days [refunds.md#1]."
+    assert result.tool_calls == ["search_docs"]
+    [call] = client.calls
+    assert call["stream"] is True
+    assert call["max_tokens"] == 64000
+
+
+def test_streaming_without_a_callback_still_returns_the_answer():
+    client = ScriptedClient([message(text_block("ok"))])
+    assert ask("Hi", INDEX, client=client, stream=True).answer == "ok"
+
+
+def test_usage_is_summed_over_every_model_call():
+    client = ScriptedClient([
+        message(tool_use_block("search_docs"), stop_reason="tool_use",
+                usage=_usage(input_tokens=900, output_tokens=40, cache_creation_input_tokens=800,
+                             cache_read_input_tokens=0)),
+        message(text_block("ok"),
+                usage=_usage(input_tokens=300, output_tokens=60, cache_creation_input_tokens=0,
+                             cache_read_input_tokens=800)),
+    ])
+    result = ask("Hi", INDEX, client=client)
+    assert result.usage == {"input_tokens": 1200, "output_tokens": 100,
+                            "cache_creation_input_tokens": 800, "cache_read_input_tokens": 800}
 
 
 def test_refusals_are_reported_not_hidden():
-    client = FakeClient([_message(_text("partial"), stop_reason="refusal")])
+    client = ScriptedClient([message(text_block("partial"), stop_reason="refusal")])
     result = ask("...", INDEX, client=client)
     assert result.refused
     assert result.answer == "The request was declined."
+
+
+def test_an_empty_run_is_safe():
+    result = ask("Hi", INDEX, client=ScriptedClient([]))
+    assert result.answer == "" and result.stop_reason is None
