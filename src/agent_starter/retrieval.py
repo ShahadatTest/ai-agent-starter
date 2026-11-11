@@ -5,7 +5,7 @@ Everything the agent needs from retrieval is the small `Retriever` protocol belo
 before embeddings). It needs no API key, no vector database and no GPU, ranks well on technical docs where exact
 terms matter, and is fully deterministic, which makes the whole agent testable offline.
 
-`agent_starter.embeddings.EmbeddingIndex` is an optional, local alternative (``pip install "agent-starter[embeddings]"``)
+`agent_starter.embeddings.EmbeddingIndex` is an optional, local alternative (``pip install "ai-agent-starter[embeddings]"``)
 that implements the same protocol; `build_retriever` picks one by name.
 """
 
@@ -126,10 +126,9 @@ def build_retriever(folder: str | Path, kind: str = "bm25", **kwargs) -> Retriev
 class BM25Index:
     """Okapi BM25 over chunks. `k1` controls term-frequency saturation, `b` length normalization.
 
-    `min_score` drops weak hits the same way `EmbeddingIndex` does: a shared incidental term
-    (score just above 0) is not enough. Absolute BM25 scores depend on the corpus, so callers
-    that need a relative cutoff should pick `min_score` against their own eval; the default
-    stays `0.0` so existing behaviour is unchanged.
+    `min_score` is a strict lower bound for returned scores. Tune it against
+    your own corpus because absolute BM25 scores depend on the documents.
+    The default `0.0` keeps the existing positive-score filter.
     """
 
     def __init__(
@@ -159,6 +158,8 @@ class BM25Index:
 
     def search(self, query: str, k: int = 4) -> list[tuple[Chunk, float]]:
         """Top-k chunks for `query`, best first. Chunks at or below `min_score` are never returned."""
+        if k <= 0:
+            return []
         query_terms = tokenize(query)
         if not query_terms or not self.chunks:
             return []
